@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn link_array() {
 
-        let descriptors = [CuTensorDescriptor::<f32>::new(&[1, 1, 4, 10]), CuTensorDescriptor::<f32>::new(&[1, 1, 4, 20])];
+        let descriptors = [CuTensorDescriptor::<f32>::new(vec![1, 1, 4, 10]), CuTensorDescriptor::<f32>::new(vec![1, 1, 4, 20])];
         let mut data = CuVector::<f32>::new(1.0, descriptors.data_len());
 
         {

@@ -11,7 +11,6 @@ mod activation_descriptor;
 mod convolution_descriptor;
 //mod rnn_descriptor;
 mod filter;
-mod filter_descriptor;
 //mod dropout_descriptor;
 
 
@@ -24,5 +23,4 @@ pub use self::activation_descriptor::*;
 pub use self::convolution_descriptor::*;
 //pub use self::rnn_descriptor::*;
 pub use self::filter::*;
-pub use self::filter_descriptor::*;
 //pub use self::dropout_descriptor::*;

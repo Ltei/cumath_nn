@@ -1,3 +1,4 @@
 
+## cumath-nn
 
-Rust wrapper around Cudnn.
+A Rust wrapper around Cudnn. Unusable for now.

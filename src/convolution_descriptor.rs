@@ -122,7 +122,7 @@ mod tests {
         let mut cudnn = Cudnn::new();
         let convolution = CuConvolutionDescriptor::<f32>::new(&[0, 0, 1, 1], &[1, 1, 1, 1], &[1, 1, 1, 1],
                                                       CudnnConvolutionMode::CrossCorrelation, 1, CudnnMathType::Default);
-        let input_desc = CuTensorDescriptor::<f32>::new(&[1, 1, 2, 2]);
+        let input_desc = CuTensorDescriptor::<f32>::new(vec![1, 1, 2, 2]);
         let kernel_desc = CuFilterDescriptor::<f32>::new(CudnnTensorFormat::Nchw, &[1, 1, 3, 3]);
 
         println!("conv_desc = {:?}", convolution.get_info(4));
@@ -167,21 +167,27 @@ mod tests {
             1, 3,
             height, width,
         );
+        let output_desc = CuTensorDescriptor::<f32>::new_4d(
+            CudnnTensorFormat::Nhwc,
+            1,3,
+            height, width,
+        );
 
         println!("conv_desc = {:?}", convolution.get_info(4));
         println!("input_desc = {:?}", input_desc.get_info());
+        println!("output_desc = {:?}", output_desc.get_info());
         println!("kernel_desc = {:?}", kernel_desc.get_info(4));
 
 
-        let mut input_data = CuVector::<f32>::zero(input_desc.data_len());
-        let mut output_data = CuVector::<f32>::zero(input_desc.data_len());
-        let kernel_data = CuVector::<f32>::zero(9);
+        let mut input_data = CuVector::<f32>::new(1.0, input_desc.data_len());
+        let mut output_data = CuVector::<f32>::zero(output_desc.data_len());
+        let kernel_data = CuVector::<f32>::new(2.0, 9);
 
         let algo = CudnnConvolutionFwdAlgo::Gemm;
 
         let workspace_size = convolution.get_forward_workspace_size(&cudnn, &input_desc,
                                                                     &kernel_desc,
-                                                                    &input_desc, algo);
+                                                                    &output_desc, algo);
         let mut workspace = CuVector::<f32>::zero(workspace_size);
 
         convolution.forward(&mut cudnn,
@@ -189,7 +195,10 @@ mod tests {
                             &mut input_desc.link_mut(&mut input_data),
                             &kernel_desc, &kernel_data,
                             &mut workspace,
-                            &mut input_desc.link_mut(&mut output_data), algo);
+                            &mut output_desc.link_mut(&mut output_data), algo);
+
+        println!("Input = {:?}", input_data);
+        println!("Output = {:?}", output_data);
 
     }
 

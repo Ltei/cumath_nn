@@ -12,11 +12,20 @@ pub struct CuTensorDescriptor<T: CuDataType> {
     _phantom: PhantomData<T>,
     pub(crate) data: *mut _TensorDescriptorStruct,
     nb_dimensions: i32,
+    dimensions: Vec<i32>,
+    strides: Vec<i32>,
+    data_len: usize,
 }
 
 impl<T: CuDataType> Drop for CuTensorDescriptor<T> {
     fn drop(&mut self) {
         cudnn_destroy_tensor_descriptor(self.data);
+    }
+}
+
+impl<T: CuDataType> Debug for CuTensorDescriptor<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Nb dims:{}, Dimensions:{:?}, Strides:{:?}, Data len:{}", self.nb_dimensions, self.dimensions, self.strides, self.data_len)
     }
 }
 
@@ -30,12 +39,17 @@ impl<T: CuDataType> Clone for CuTensorDescriptor<T> {
             _phantom: PhantomData,
             data,
             nb_dimensions: self.nb_dimensions,
+            dimensions: self.dimensions.clone(),
+            strides: self.strides.clone(),
+            data_len: self.data_len,
         }
     }
     fn clone_from(&mut self, other: &CuTensorDescriptor<T>) {
         let info = other.get_info();
         cudnn_set_tensor_nd_descriptor(self.data, info.data_type, info.nb_dims, info.dimensions.as_ptr(), info.strides.as_ptr());
-        self.nb_dimensions = other.nb_dimensions;
+        self.dimensions.clone_from(&other.dimensions);
+        self.strides.clone_from(&other.strides);
+        self.data_len = other.data_len;
     }
 }
 
@@ -62,10 +76,11 @@ impl<T: CuDataType> CuTensorDescriptor<T> {
     }
 
     pub fn get_info(&self) -> CuTensorDescriptorInfo {
+        let nb_dimensions = self.dimensions.len();
         let mut data_type = CudnnDataType::Int8x4;
         let mut nb_dims = -1;
-        let mut dimensions = vec![-1; self.nb_dimensions as usize];
-        let mut strides = vec![-1; self.nb_dimensions as usize];
+        let mut dimensions = vec![-1; nb_dimensions];
+        let mut strides = vec![-1; nb_dimensions];
         cudnn_get_tensor_nd_descriptor(self.data, self.nb_dimensions,
                                        &mut data_type, &mut nb_dims, dimensions.as_mut_ptr(), strides.as_mut_ptr());
         CuTensorDescriptorInfo { data_type, nb_dims, dimensions, strides }
@@ -75,18 +90,25 @@ impl<T: CuDataType> CuTensorDescriptor<T> {
 
 impl CuTensorDescriptor<f32> {
 
-    pub fn new(dimensions: &[i32]) -> CuTensorDescriptor<f32> {
+    pub fn new(dimensions: Vec<i32>) -> CuTensorDescriptor<f32> {
         #[cfg(not(feature = "disable_checks"))] {
             if dimensions.len() < 3 { panic!("dimensions.len() must be >= 3") }
         }
+        let strides = get_fully_packed_strides(&dimensions);
         let mut data = ptr::null_mut();
         cudnn_create_tensor_descriptor(&mut data);
-        cudnn_set_tensor_nd_descriptor(data, CudnnDataType::Float, dimensions.len() as i32,
-                                       dimensions.as_ptr(), get_fully_packed_strides(dimensions).as_ptr());
+        cudnn_set_tensor_nd_descriptor(data, CudnnDataType::Float, dimensions.len() as i32, dimensions.as_ptr(), strides.as_ptr());
+        let mut data_len = 0;
+        cudnn_get_tensor_size_in_bytes(data, &mut data_len);
+        data_len /=  size_of::<f32>();
+
         CuTensorDescriptor {
             _phantom: PhantomData,
             data,
             nb_dimensions: dimensions.len() as i32,
+            dimensions,
+            strides,
+            data_len,
         }
     }
 
@@ -94,10 +116,26 @@ impl CuTensorDescriptor<f32> {
         let mut data = ptr::null_mut();
         cudnn_create_tensor_descriptor(&mut data);
         cudnn_set_tensor4d_descriptor(data, format, CudnnDataType::Float, n, c, h, w);
+        let mut data_len = 0;
+        cudnn_get_tensor_size_in_bytes(data, &mut data_len);
+        data_len /=  size_of::<f32>();
+
+        let dimensions = match format {
+            CudnnTensorFormat::Nchw => vec![n, c, h, w],
+            CudnnTensorFormat::Nhwc => vec![n, c, h, w],
+        };
+
         CuTensorDescriptor {
             _phantom: PhantomData,
-            data,
             nb_dimensions: 4,
+            data_len: {
+                let mut data_len = 0;
+                cudnn_get_tensor_size_in_bytes(data, &mut data_len);
+                data_len /  size_of::<f32>()
+            },
+            strides: get_fully_packed_strides(&dimensions),
+            data,
+            dimensions,
         }
     }
 
@@ -141,10 +179,35 @@ mod tests {
     use super::*;
     use cumath::CuVector;
 
+    fn assert_validity(descriptor: &CuTensorDescriptor<f32>) {
+        println!("Asserting Tensor descriptor {:?}", descriptor);
+        assert_eq!(descriptor.dimensions.len(), descriptor.strides.len());
+        assert_eq!(descriptor.strides, get_fully_packed_strides(&descriptor.dimensions));
+
+        let info = descriptor.get_info();
+        println!("    Info = {:?}", info);
+        assert_eq!(info.data_type, CudnnDataType::Float);
+        assert_eq!(info.nb_dims, descriptor.dimensions.len() as i32);
+        assert_eq!(info.nb_dims, info.dimensions.len() as i32);
+        assert_eq!(info.nb_dims, info.strides.len() as i32);
+
+        (0..descriptor.dimensions.len()).for_each(|x| {
+            assert_eq!(info.dimensions[x], descriptor.dimensions[x]);
+            assert_eq!(info.strides[x], descriptor.strides[x]);
+        })
+    }
+
+    #[test]
+    fn init() {
+        assert_validity(&CuTensorDescriptor::<f32>::new(vec![7, 1, 5, 3]));
+        assert_validity(&CuTensorDescriptor::<f32>::new_4d(CudnnTensorFormat::Nhwc, 7, 1, 5, 3));
+        assert_validity(&CuTensorDescriptor::<f32>::new_4d(CudnnTensorFormat::Nchw, 7, 1, 5, 3));
+    }
+
     #[test]
     fn link() {
 
-        let descriptor = CuTensorDescriptor::<f32>::new(&[1, 1, 4, 10]);
+        let descriptor = CuTensorDescriptor::<f32>::new(vec![1, 1, 4, 10]);
         let mut data = CuVector::<f32>::new(1.0, descriptor.data_len());
 
         {
