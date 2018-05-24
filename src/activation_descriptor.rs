@@ -132,7 +132,7 @@ mod tests {
     fn test_forward(name: &str, activation: CuActivationDescriptor) {
         let cudnn = Cudnn::new();
 
-        let tensor_descriptor = CuTensorDescriptor::<f32>::new(vec![2, 2, 1]);
+        let tensor_descriptor = CuTensorDescriptor::<f32>::fully_packed(&[2, 2, 1]);
         let mut input = CuVector::<f32>::from_host_data(&[-0.75, -0.5, 0.0, 1.0]);
         let mut output = CuVector::<f32>::zero(tensor_descriptor.data_len());
         let d_input = CuVector::<f32>::new(1.0, tensor_descriptor.data_len());
@@ -200,7 +200,7 @@ mod tests {
 
         let cudnn = Cudnn::new();
         let activation = CuActivationDescriptor::sigmoid();
-        let tensor_descriptor = CuTensorDescriptor::<f32>::new(vec![2, 3, 4, 5]);
+        let tensor_descriptor = CuTensorDescriptor::<f32>::fully_packed(&[2, 3, 4, 5]);
         let mut vector = CuVector::<f32>::zero(tensor_descriptor.data_len());
         println!("Input = {:?}", vector);
         let t0 = Instant::now();
