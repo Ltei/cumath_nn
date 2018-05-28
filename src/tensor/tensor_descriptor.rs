@@ -134,11 +134,7 @@ impl CuTensorDescriptor<f32> {
         CuTensorDescriptor {
             _phantom: PhantomData,
             nb_dims: 4,
-            data_len: {
-                let mut data_len = 0;
-                cudnn_get_tensor_size_in_bytes(data, &mut data_len);
-                data_len /  size_of::<f32>()
-            },
+            data_len,
             data,
         }
     }

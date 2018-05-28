@@ -2,7 +2,6 @@
 use std::{ptr, mem::size_of};
 use std::marker::PhantomData;
 use std::os::raw::c_void;
-use std::fmt::{self, Debug};
 use cumath::*;
 use super::ffi::*;
 use super::*;
@@ -43,6 +42,7 @@ impl<T: CuDataType> CuConvolutionDescriptor<T> {
                                   output.descriptor.data, output.data as *mut c_void);
     }
 
+    #[allow(unused_variables)]
     pub fn backward_data(&self, cudnn: &mut Cudnn,
                          alpha: f32, beta: f32, output: &CuTensorDeref<f32>,
                          kernel_desc: &CuFilterDescriptor<f32>, kernel_data: &mut CuVectorDeref<f32>,
@@ -54,7 +54,7 @@ impl<T: CuDataType> CuConvolutionDescriptor<T> {
 
 impl CuConvolutionDescriptor<f32> {
 
-    pub fn new(paddings: &[i32], filters_stride: &[i32], dilatations: &[i32], mode: CudnnConvolutionMode, group_count: i32, math_type: CudnnMathType) -> CuConvolutionDescriptor<f32> {
+    pub fn new(paddings: &[i32], filters_stride: &[i32], dilatations: &[i32], mode: CudnnConvolutionMode/*, group_count: i32, math_type: CudnnMathType*/) -> CuConvolutionDescriptor<f32> {
         let len = paddings.len();
         assert_eq!(len, filters_stride.len());
         assert_eq!(len, dilatations.len());
@@ -124,10 +124,7 @@ mod tests {
             1, 1,
             CudnnConvolutionMode::CrossCorrelation
         );
-        let convolution_nd = CuConvolutionDescriptor::<f32>::new(
-            &[1, 1], &[1, 1], &[1, 1],
-            CudnnConvolutionMode::CrossCorrelation, 1,
-            CudnnMathType::Default);
+        let convolution_nd = CuConvolutionDescriptor::<f32>::new(&[1, 1], &[1, 1], &[1, 1], CudnnConvolutionMode::CrossCorrelation);
         assert!(convolution_2d.get_info().eq(&convolution_nd.get_info()))
     }
 
@@ -135,8 +132,7 @@ mod tests {
     fn convolution() {
         let mut cudnn = Cudnn::new();
 
-        let convolution = CuConvolutionDescriptor::<f32>::new(&[1, 1], &[1, 1], &[1, 1],
-                                                      CudnnConvolutionMode::CrossCorrelation, 1, CudnnMathType::Default);
+        let convolution =  CuConvolutionDescriptor::<f32>::new(&[1, 1], &[1, 1], &[1, 1], CudnnConvolutionMode::CrossCorrelation);
         let input_desc = CuTensorDescriptor::<f32>::new(&[1, 3, 4, 2], &[24, 1, 6, 3]);
         let kernel_desc = CuFilterDescriptor::<f32>::new(CudnnTensorFormat::Nchw, &[3, 3, 3, 3]);
 

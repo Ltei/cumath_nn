@@ -90,21 +90,29 @@ impl CuActivationDescriptor {
                                  &output_scale as *const T as *const c_void, vector.descriptor.data, vector.data as *mut c_void)
     }
     pub fn backward<T: CuDataType>(&self, cudnn: &Cudnn, alpha: T, beta: T,
-                                   input: &CuTensorDeref<T>, d_input: &CuTensorDeref<T>,
-                                   output: &CuTensorDeref<T>, d_output: &mut CuTensorDeref<T>) {
+                                   input: &CuTensorDeref<T>,
+                                   output: &CuTensorDeref<T>,
+                                   output_signal: &CuTensorDeref<T>,
+                                   input_signal: &mut CuTensorDeref<T>) {
         cudnn_activation_backward(cudnn.handle, self.data,
-                                  (&alpha) as *const T as *const c_void, input.descriptor.data, input.data as *const c_void,
-                                  d_input.descriptor.data, d_input.data as *const c_void, output.descriptor.data, output.data as *mut c_void,
-                                  (&beta) as *const T as *const c_void, d_output.descriptor.data, d_output.data as *mut c_void)
+                                  (&alpha) as *const T as *const c_void,
+                                  output.descriptor.data, output.data as *const c_void,
+                                  output_signal.descriptor.data, output_signal.data as *const c_void,
+                                  input.descriptor.data, input.data as *mut c_void,
+                                  (&beta) as *const T as *const c_void,
+                                  input_signal.descriptor.data, input_signal.data as *mut c_void)
     }
     pub fn backward_inplace<T: CuDataType>(&self, cudnn: &Cudnn, alpha: T, beta: T,
                                            input: &CuTensorDeref<T>,
                                            output: &CuTensorDeref<T>,
                                            signal: &mut CuTensorDeref<T>) {
         cudnn_activation_backward(cudnn.handle, self.data,
-                                  (&alpha) as *const T as *const c_void, input.descriptor.data, input.data as *const c_void,
-                                  signal.descriptor.data, signal.data as *const c_void, output.descriptor.data, output.data as *mut c_void,
-                                  (&beta) as *const T as *const c_void, signal.descriptor.data, signal.data as *mut c_void)
+                                  (&alpha) as *const T as *const c_void,
+                                  output.descriptor.data, output.data as *const c_void,
+                                  signal.descriptor.data, signal.data as *const c_void,
+                                  input.descriptor.data, input.data as *mut c_void,
+                                  (&beta) as *const T as *const c_void,
+                                  signal.descriptor.data, signal.data as *mut c_void)
     }
 
 }
@@ -129,53 +137,79 @@ mod tests {
 
     use super::*;
 
-    fn test_forward(name: &str, activation: CuActivationDescriptor) {
+    fn test_activation(name: &str, activation: CuActivationDescriptor) {
         let cudnn = Cudnn::new();
 
+        let input_data = [-0.75, -0.5, 0.0, 1.0];
+        let output_signal_data = [1.0; 4];
+        let mut buffer = [0.0; 4];
+
+
         let tensor_descriptor = CuTensorDescriptor::<f32>::fully_packed(&[2, 2, 1]);
-        let mut input = CuVector::<f32>::from_host_data(&[-0.75, -0.5, 0.0, 1.0]);
-        let mut output = CuVector::<f32>::zero(tensor_descriptor.data_len());
-        let d_input = CuVector::<f32>::new(1.0, tensor_descriptor.data_len());
-        let mut d_output = CuVector::<f32>::zero(tensor_descriptor.data_len());
+        let input = CuVector::<f32>::from_host_data(&[-0.75, -0.5, 0.0, 1.0]);
+        let output_signal = CuVector::<f32>::from_host_data(&output_signal_data);
 
-        activation.forward(&cudnn, &tensor_descriptor.link(&input), 1.0, &mut tensor_descriptor.link_mut(&mut output), 0.0);
+        let mut forward_output = CuVector::<f32>::zero(tensor_descriptor.data_len());
+        activation.forward(&cudnn, &tensor_descriptor.link(&input), 1.0, &mut tensor_descriptor.link_mut(&mut forward_output), 0.0);
+        input.dev_assert_equals(&input_data);
 
-        println!("{} 1 : Input[{:?}] Output[{:?}]", name, input, output);
+        let mut forward_inplace_output = input.clone();
+        activation.forward_inplace(&cudnn, &mut tensor_descriptor.link_mut(&mut forward_inplace_output), 1.0, 0.0);
+        forward_inplace_output.clone_to_host(&mut buffer);
+        forward_output.dev_assert_equals(&buffer);
 
+        println!("{} forward : Output[{:?}]", name, forward_output);
+
+
+        let mut backward_output = CuVector::<f32>::zero(tensor_descriptor.data_len());
         activation.backward(&cudnn, 1.0, 0.0,
                             &tensor_descriptor.link(&input),
-                            &tensor_descriptor.link(&d_input),
-                            &tensor_descriptor.link(&output),
-                            &mut tensor_descriptor.link_mut(&mut d_output));
+                            &tensor_descriptor.link(&forward_output),
+                            &tensor_descriptor.link(&output_signal),
+                            &mut tensor_descriptor.link_mut(&mut backward_output));
+        input.dev_assert_equals(&input_data);
+        output_signal.dev_assert_equals(&output_signal_data);
+        forward_inplace_output.clone_to_host(&mut buffer);
+        forward_output.dev_assert_equals(&buffer);
 
-        println!("{} 2 : Input[{:?}] Output[{:?}] DInput[{:?}] DOutput[{:?}]", name, input, output, d_input, d_output);
+        let mut backward_inplace_output = output_signal.clone();
+        activation.backward_inplace(&cudnn, 1.0, 0.0,
+                                    &tensor_descriptor.link(&input),
+                                    &tensor_descriptor.link(&forward_output),
+                                    &mut tensor_descriptor.link_mut(&mut backward_inplace_output));
+        input.dev_assert_equals(&input_data);
+        output_signal.dev_assert_equals(&output_signal_data);
+        backward_inplace_output.clone_to_host(&mut buffer);
+        println!("{:?}", backward_output);
+        println!("{:?}", backward_inplace_output);
+        backward_output.dev_assert_equals(&buffer);
 
-        activation.forward_inplace(&cudnn, &mut tensor_descriptor.link_mut(&mut input), 1.0, 0.0);
+        println!("{} backward : Output[{:?}]", name, backward_output);
     }
 
     #[test]
     fn sigmoid_forward() {
-        test_forward("sigmoid", CuActivationDescriptor::sigmoid());
+        test_activation("sigmoid", CuActivationDescriptor::sigmoid());
     }
 
     #[test]
     fn relu_forward() {
-        test_forward("relu", CuActivationDescriptor::relu());
+        test_activation("relu", CuActivationDescriptor::relu());
     }
 
     #[test]
     fn tanh_forward() {
-        test_forward("tanh", CuActivationDescriptor::tanh());
+        test_activation("tanh", CuActivationDescriptor::tanh());
     }
 
     #[test]
     fn clipped_relu_forward() {
-        test_forward("clippedRelu", CuActivationDescriptor::clipped_relu(0.5));
+        test_activation("clippedRelu", CuActivationDescriptor::clipped_relu(0.5));
     }
 
     #[test]
     fn elu_forward() {
-        test_forward("elu", CuActivationDescriptor::elu(0.5));
+        test_activation("elu", CuActivationDescriptor::elu(0.5));
     }
 
     /*#[test]

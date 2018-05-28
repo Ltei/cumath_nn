@@ -2,8 +2,6 @@
 use super::ffi::*;
 use std::ptr;
 
-//pub(crate) static mut NAN_PROPAGATION : CudnnNanPropagation = CudnnNanPropagation::Propagate;
-
 
 pub struct Cudnn {
     pub(crate) handle: *mut _CudnnStruct,
@@ -24,23 +22,3 @@ impl Cudnn {
     }
 
 }
-
-/*impl Cudnn {
-    pub fn set_nan_propagation(propagate: bool) {
-        unsafe {
-            NAN_PROPAGATION = if propagate {
-                CudnnNanPropagation::Propagate
-            } else {
-                CudnnNanPropagation::NotPropagate
-            }
-        }
-    }
-    pub fn get_nan_propagation() -> bool {
-        unsafe {
-            match NAN_PROPAGATION {
-                CudnnNanPropagation::NotPropagate => false,
-                CudnnNanPropagation::Propagate => true,
-            }
-        }
-    }
-}*/
